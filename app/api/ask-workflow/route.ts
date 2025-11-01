@@ -1,7 +1,7 @@
 // app/api/ask-workflow/route.ts
 import OpenAI from "openai";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
