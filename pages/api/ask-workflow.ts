@@ -2,60 +2,52 @@ import type { NextApiRequest, NextApiResponse } from "next";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    res.status(405).json({ error: "Method not allowed" });
-    return;
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
     const { message } = req.body;
-    if (!message) {
-      res.status(400).json({ error: "Missing message" });
-      return;
-    }
-
     const apiKey = process.env.OPENAI_API_KEY;
     const workflowId = process.env.NEXT_PUBLIC_CHATKIT_WORKFLOW_ID;
 
-    // 🔹 Étape 1 : Créer une session sur ton workflow ChatKit
-    const sessionRes = await fetch("https://api.openai.com/v1/chat/sessions", {
+    if (!apiKey || !workflowId) {
+      return res.status(400).json({ error: "Missing env variables" });
+    }
+
+    // 🔹 Requête brute à OpenAI
+    const response = await fetch("https://api.openai.com/v1/workflows/runs", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "chatgpt-omni-preview", // requis pour workflows
+        "OpenAI-Beta": "workflows=v1",
       },
       body: JSON.stringify({
-        model: workflowId,
+        workflow_id: workflowId,
+        inputs: { message },
       }),
     });
 
-    const sessionData = await sessionRes.json();
-    const sessionId = sessionData.id;
+    // 🔹 Collecter les infos
+    const status = response.status;
+    const headers = Object.fromEntries(response.headers.entries());
+    const rawText = await response.text();
 
-    // 🔹 Étape 2 : Envoyer le message utilisateur
-    const responseRes = await fetch("https://api.openai.com/v1/chat/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "OpenAI-Beta": "chatgpt-omni-preview",
+    console.log("🧩 DEBUG /ask-workflow");
+    console.log("Status:", status);
+    console.log("Headers:", headers);
+    console.log("Raw body (first 500 chars):", rawText.slice(0, 500));
+
+    // 🔹 Retourne tout au client pour inspection
+    return res.status(200).json({
+      debug: {
+        status,
+        headers,
+        rawText: rawText.slice(0, 1000),
       },
-      body: JSON.stringify({
-        model: workflowId,
-        messages: [{ role: "user", content: message }],
-        session_id: sessionId,
-      }),
     });
-
-    const data = await responseRes.json();
-    const reply =
-      data.output?.[0]?.content?.[0]?.text ??
-      data.output_text ??
-      "Le workflow n'a renvoyé aucune réponse.";
-
-    res.status(200).json({ reply });
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error("Error in /api/ask-workflow:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: error.message || "Internal Server Error" });
   }
 }
