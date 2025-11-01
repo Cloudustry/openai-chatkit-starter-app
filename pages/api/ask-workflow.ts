@@ -14,42 +14,61 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Missing env variables" });
     }
 
-    const response = await fetch("https://api.openai.com/v1/workflows/runs", {
+    // 🔹 Créer une "session" ChatKit (exactement comme route.ts le fait)
+    const sessionRes = await fetch("https://api.openai.com/v1/chatkit/sessions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "workflows=v1",
+        "OpenAI-Beta": "chatkit_beta=v1",
       },
       body: JSON.stringify({
-        workflow_id: workflowId,
-        inputs: { message },
+        workflow: { id: workflowId },
       }),
     });
 
-    const status = response.status;
-    const headers = Object.fromEntries(response.headers.entries());
-    const rawText = await response.text();
+    const sessionJson = await sessionRes.json();
+    if (!sessionRes.ok) {
+      console.error("ChatKit session error:", sessionJson);
+      return res.status(sessionRes.status).json(sessionJson);
+    }
 
-    console.log("🧩 DEBUG /ask-workflow");
-    console.log("Status:", status);
-    console.log("Headers:", headers);
-    console.log("Raw body (first 500 chars):", rawText.slice(0, 500));
+    const sessionId = sessionJson.id;
 
-    return res.status(200).json({
-      debug: {
-        status,
-        headers,
-        rawText: rawText.slice(0, 1000),
+    // 🔹 Envoyer le message à ton workflow ChatKit
+    const msgRes = await fetch("https://api.openai.com/v1/chatkit/messages", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "OpenAI-Beta": "chatkit_beta=v1",
       },
+      body: JSON.stringify({
+        session_id: sessionId,
+        messages: [{ role: "user", content: message }],
+      }),
     });
+
+    const msgJson = await msgRes.json();
+    if (!msgRes.ok) {
+      console.error("ChatKit message error:", msgJson);
+      return res.status(msgRes.status).json(msgJson);
+    }
+
+    // 🔹 Extraire la réponse textuelle
+    const reply =
+      msgJson.output?.[0]?.content?.[0]?.text ??
+      msgJson.output_text ??
+      "Le workflow n’a renvoyé aucune réponse.";
+
+    res.status(200).json({ reply });
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error("Error in /api/ask-workflow:", error.message, error.stack);
-      return res.status(500).json({ error: error.message });
+      console.error("Error in /api/ask-workflow:", error.message);
+      res.status(500).json({ error: error.message });
     } else {
       console.error("Unknown error in /api/ask-workflow:", error);
-      return res.status(500).json({ error: "Internal Server Error" });
+      res.status(500).json({ error: "Internal Server Error" });
     }
   }
 }
