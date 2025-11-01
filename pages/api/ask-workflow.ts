@@ -1,12 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
     const { message } = req.body as { message?: string };
     const apiKey = process.env.OPENAI_API_KEY;
-    const workflowId = process.env.NEXT_PUBLIC_CHATKIT_WORKFLOW_ID; // <- ton wf_...
+    const workflowId = process.env.NEXT_PUBLIC_CHATKIT_WORKFLOW_ID; // ex: wf_xxxxx
 
     if (!apiKey || !workflowId) {
       return res.status(400).json({ error: "Missing env variables" });
@@ -15,7 +17,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Missing message" });
     }
 
-    // 👉 Appel direct au workflow via l'API Responses (PAS ChatKit)
+    // 🔹 Appel direct à l’API Responses d’OpenAI
     const upstream = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -23,18 +25,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: workflowId,        // wf_xxxxx
-        // tu peux aussi tester `messages: [{ role: "user", content: message }]`
+        model: workflowId, // ton ID de workflow : wf_XXXXXXXX
         input: message,
       }),
     });
 
-    const text = await upstream.text(); // on lit en brut pour deboguer facile
+    const text = await upstream.text();
     let json: any = null;
-    try { json = JSON.parse(text); } catch { /* pas du JSON -> on gardera text */ }
+    try {
+      json = JSON.parse(text);
+    } catch {
+      console.error("Réponse non JSON :", text);
+    }
 
     if (!upstream.ok) {
-      // Retourne ce qu’on a pour diagnostiquer (statut + payload brut)
       return res.status(upstream.status).json({
         error: "Upstream error",
         status: upstream.status,
@@ -42,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // Extraction tolérante (Responses API peut renvoyer plusieurs formats)
+    // 🔹 Extraire la réponse texte de manière flexible
     const reply =
       json?.output_text ??
       json?.output?.[0]?.content?.[0]?.text ??
@@ -53,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ reply });
   } catch (error: unknown) {
     if (error instanceof Error) {
-      console.error("Error in /api/ask-workflow:", error.message, error.stack);
+      console.error("Error in /api/ask-workflow:", error.message);
       return res.status(500).json({ error: error.message });
     }
     console.error("Unknown error in /api/ask-workflow:", error);
