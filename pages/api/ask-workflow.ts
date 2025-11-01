@@ -14,7 +14,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Missing env variables" });
     }
 
-    // 🔹 Créer une "session" ChatKit (exactement comme route.ts le fait)
+    // 🔹 Générer un identifiant utilisateur unique (UUID ou random)
+    const userId =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : Math.random().toString(36).substring(2);
+
+    // 🔹 Étape 1 : Créer la session ChatKit
     const sessionRes = await fetch("https://api.openai.com/v1/chatkit/sessions", {
       method: "POST",
       headers: {
@@ -24,6 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       },
       body: JSON.stringify({
         workflow: { id: workflowId },
+        user: userId, // ✅ obligatoire
       }),
     });
 
@@ -35,7 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const sessionId = sessionJson.id;
 
-    // 🔹 Envoyer le message à ton workflow ChatKit
+    // 🔹 Étape 2 : Envoyer le message utilisateur à ton workflow ChatKit
     const msgRes = await fetch("https://api.openai.com/v1/chatkit/messages", {
       method: "POST",
       headers: {
@@ -55,7 +62,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(msgRes.status).json(msgJson);
     }
 
-    // 🔹 Extraire la réponse textuelle
     const reply =
       msgJson.output?.[0]?.content?.[0]?.text ??
       msgJson.output_text ??
