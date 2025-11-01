@@ -14,7 +14,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Missing env variables" });
     }
 
-    // 🔹 Requête brute à OpenAI
     const response = await fetch("https://api.openai.com/v1/workflows/runs", {
       method: "POST",
       headers: {
@@ -28,7 +27,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }),
     });
 
-    // 🔹 Collecter les infos
     const status = response.status;
     const headers = Object.fromEntries(response.headers.entries());
     const rawText = await response.text();
@@ -38,7 +36,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log("Headers:", headers);
     console.log("Raw body (first 500 chars):", rawText.slice(0, 500));
 
-    // 🔹 Retourne tout au client pour inspection
     return res.status(200).json({
       debug: {
         status,
@@ -46,8 +43,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         rawText: rawText.slice(0, 1000),
       },
     });
-  } catch (error: any) {
-    console.error("Error in /api/ask-workflow:", error);
-    return res.status(500).json({ error: error.message || "Internal Server Error" });
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      console.error("Error in /api/ask-workflow:", error.message, error.stack);
+      return res.status(500).json({ error: error.message });
+    } else {
+      console.error("Unknown error in /api/ask-workflow:", error);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
   }
 }
