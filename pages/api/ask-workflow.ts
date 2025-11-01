@@ -31,9 +31,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const text = await upstream.text();
-    let json: any = null;
+
+    // On essaie de parser la réponse JSON, sans utiliser `any`
+    let json: Record<string, unknown> | null = null;
     try {
-      json = JSON.parse(text);
+      json = JSON.parse(text) as Record<string, unknown>;
     } catch {
       console.error("Réponse non JSON :", text);
     }
@@ -46,13 +48,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // 🔹 Extraire la réponse texte de manière flexible
-    const reply =
-      json?.output_text ??
-      json?.output?.[0]?.content?.[0]?.text ??
-      json?.response?.output_text ??
-      json?.response?.output?.[0]?.content?.[0]?.text ??
-      text;
+    // 🔹 Extraction souple du texte selon la structure possible
+    let reply = text;
+    if (json) {
+      const maybeResponse = json as {
+        output_text?: string;
+        output?: { content?: { text?: string }[] }[];
+        response?: {
+          output_text?: string;
+          output?: { content?: { text?: string }[] }[];
+        };
+      };
+
+      reply =
+        maybeResponse.output_text ??
+        maybeResponse.output?.[0]?.content?.[0]?.text ??
+        maybeResponse.response?.output_text ??
+        maybeResponse.response?.output?.[0]?.content?.[0]?.text ??
+        text;
+    }
 
     return res.status(200).json({ reply });
   } catch (error: unknown) {
