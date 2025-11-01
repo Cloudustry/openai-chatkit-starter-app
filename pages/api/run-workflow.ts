@@ -1,5 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
+interface ChatKitResponse {
+  output_text?: string;
+  output?: { content?: { text?: string }[] }[];
+  response?: {
+    output_text?: string;
+    output?: { content?: { text?: string }[] }[];
+  };
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -11,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!apiKey || !workflowId) return res.status(400).json({ error: "Missing env variables" });
     if (!message) return res.status(400).json({ error: "Missing message" });
 
-    // 1) Créer une session ChatKit
+    // 1️⃣ Créer une session ChatKit
     const userId =
       typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
@@ -33,9 +42,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sessionJson = await sessionRes.json();
     if (!sessionRes.ok) return res.status(sessionRes.status).json(sessionJson);
 
-    const sessionId = sessionJson.id;
+    const sessionId = sessionJson.id as string;
 
-    // 2) Envoyer le message à ton workflow via ChatKit
+    // 2️⃣ Envoyer le message à ton workflow via ChatKit
     const responseRes = await fetch("https://api.openai.com/v1/chatkit/responses", {
       method: "POST",
       headers: {
@@ -50,24 +59,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     const dataText = await responseRes.text();
-    let data: Record<string, unknown> | null = null;
-    try { data = JSON.parse(dataText) as Record<string, unknown>; } catch {}
-
-    if (!responseRes.ok) {
-      return res.status(responseRes.status).json({ error: "Upstream error", payload: data ?? dataText });
+    let data: ChatKitResponse | null = null;
+    try {
+      data = JSON.parse(dataText) as ChatKitResponse;
+    } catch {
+      console.warn("Réponse non JSON :", dataText.slice(0, 200));
     }
 
-    // extraction robuste du texte selon différentes formes de payload
+    if (!responseRes.ok) {
+      return res.status(responseRes.status).json({
+        error: "Upstream error",
+        payload: data ?? dataText,
+      });
+    }
+
+    // 🔹 Extraction sécurisée du texte
     const reply =
-      (data as any)?.output_text ??
-      (data as any)?.output?.[0]?.content?.[0]?.text ??
-      (data as any)?.response?.output_text ??
-      (data as any)?.response?.output?.[0]?.content?.[0]?.text ??
+      data?.output_text ??
+      data?.output?.[0]?.content?.[0]?.text ??
+      data?.response?.output_text ??
+      data?.response?.output?.[0]?.content?.[0]?.text ??
       dataText;
 
     return res.status(200).json({ reply });
   } catch (error: unknown) {
-    if (error instanceof Error) return res.status(500).json({ error: error.message });
+    if (error instanceof Error) {
+      console.error("Error in /api/run-workflow:", error.message);
+      return res.status(500).json({ error: error.message });
+    }
+    console.error("Unknown error in /api/run-workflow:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 }
